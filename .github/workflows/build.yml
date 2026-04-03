@@ -17,7 +17,6 @@ jobs:
           # Enable captcha/verification handling on non-mobile platforms
           (Get-Content td/telegram/net/NetQueryDispatcher.cpp) -replace '#define TD_TEST_VERIFICATION 0', '#define TD_TEST_VERIFICATION 1' | Set-Content td/telegram/net/NetQueryDispatcher.cpp
           # Also patch app_version suffix (change 21724 check)
-          # This is in source code, easier than binary patching
           (Get-Content td/telegram/Td.cpp) -replace 'api_id != 21724', 'api_id == -1' | Set-Content td/telegram/Td.cpp
           Write-Host "Patches applied"
 
@@ -34,12 +33,20 @@ jobs:
           cd td
           mkdir build
           cd build
-          cmake -A x64 -DCMAKE_BUILD_TYPE=Release -DTD_ENABLE_MULTI_PROCESSOR_COMPILATION=ON -DCMAKE_TOOLCHAIN_FILE:FILEPATH=../vcpkg/scripts/buildsystems/vcpkg.cmake ..
-          cmake --build . --target tdjson --config Release
-          dir Release\tdjson.dll
+          cmake -A x64 -DCMAKE_BUILD_TYPE=Release -DTD_ENABLE_MULTI_PROCESSOR_COMPILATION=ON -DCMAKE_INSTALL_PREFIX:PATH=../tdlib -DCMAKE_TOOLCHAIN_FILE:FILEPATH=../vcpkg/scripts/buildsystems/vcpkg.cmake ..
+          cmake --build . --target install --config Release
 
-      - name: Upload tdjson.dll
+      - name: Collect all DLLs
+        run: |
+          mkdir artifact
+          # Main DLL
+          copy td\tdlib\bin\tdjson.dll artifact\
+          # OpenSSL and zlib from vcpkg
+          copy td\vcpkg\installed\x64-windows\bin\*.dll artifact\
+          dir artifact\
+
+      - name: Upload all DLLs
         uses: actions/upload-artifact@v4
         with:
           name: tdjson-windows-x64-patched
-          path: td/build/Release/tdjson.dll
+          path: artifact/
