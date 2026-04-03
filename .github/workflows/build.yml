@@ -1,4 +1,4 @@
-name: Build TDLib with TD_TEST_VERIFICATION=1
+name: Build TDLib with captcha support
 
 on:
   push:
@@ -10,15 +10,26 @@ jobs:
     runs-on: windows-2022
 
     steps:
-      - name: Clone TDLib
+      - name: Clone and patch TDLib
         run: |
           git clone --depth 1 https://github.com/tdlib/td.git
           cd td
-          # Enable captcha/verification handling on non-mobile platforms
-          (Get-Content td/telegram/net/NetQueryDispatcher.cpp) -replace '#define TD_TEST_VERIFICATION 0', '#define TD_TEST_VERIFICATION 1' | Set-Content td/telegram/net/NetQueryDispatcher.cpp
-          # Also patch app_version suffix (change 21724 check)
-          (Get-Content td/telegram/Td.cpp) -replace 'api_id != 21724', 'api_id == -1' | Set-Content td/telegram/Td.cpp
-          Write-Host "Patches applied"
+
+          # Patch 1: Enable captcha/verification handler on ALL platforms
+          # TD_TEST_VERIFICATION stays 0 (no fake errors)
+          # But we replace the platform guard so verifier_ is created on Windows too
+          $file = Get-Content "td/telegram/net/NetQueryDispatcher.cpp" -Raw
+
+          # Replace all occurrences of the platform guard with #if 1
+          $guard = 'TD_ANDROID || TD_DARWIN_IOS || TD_DARWIN_VISION_OS || TD_DARWIN_WATCH_OS || TD_TEST_VERIFICATION'
+          $file = $file.Replace($guard, '1')
+
+          Set-Content "td/telegram/net/NetQueryDispatcher.cpp" $file
+          Write-Host "Patch 1: platform guard replaced with #if 1"
+
+          # Patch 2: Remove app_version TDLib suffix
+          (Get-Content "td/telegram/Td.cpp") -replace 'api_id != 21724', 'api_id == -1' | Set-Content "td/telegram/Td.cpp"
+          Write-Host "Patch 2: no TDLib version suffix"
 
       - name: Setup vcpkg
         run: |
@@ -39,9 +50,7 @@ jobs:
       - name: Collect all DLLs
         run: |
           mkdir artifact
-          # Main DLL
           copy td\tdlib\bin\tdjson.dll artifact\
-          # OpenSSL and zlib from vcpkg
           copy td\vcpkg\installed\x64-windows\bin\*.dll artifact\
           dir artifact\
 
