@@ -1,0 +1,45 @@
+name: Build TDLib with TD_TEST_VERIFICATION=1
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+
+    steps:
+      - name: Clone TDLib
+        run: |
+          git clone --depth 1 https://github.com/tdlib/td.git
+          cd td
+          # Enable captcha/verification handling on non-mobile platforms
+          (Get-Content td/telegram/net/NetQueryDispatcher.cpp) -replace '#define TD_TEST_VERIFICATION 0', '#define TD_TEST_VERIFICATION 1' | Set-Content td/telegram/net/NetQueryDispatcher.cpp
+          # Also patch app_version suffix (change 21724 check)
+          # This is in source code, easier than binary patching
+          (Get-Content td/telegram/Td.cpp) -replace 'api_id != 21724', 'api_id == -1' | Set-Content td/telegram/Td.cpp
+          Write-Host "Patches applied"
+
+      - name: Setup vcpkg
+        run: |
+          cd td
+          git clone https://github.com/Microsoft/vcpkg.git
+          cd vcpkg
+          .\bootstrap-vcpkg.bat
+          .\vcpkg.exe install gperf:x64-windows openssl:x64-windows zlib:x64-windows
+
+      - name: Build tdjson.dll
+        run: |
+          cd td
+          mkdir build
+          cd build
+          cmake -A x64 -DCMAKE_BUILD_TYPE=Release -DTD_ENABLE_MULTI_PROCESSOR_COMPILATION=ON -DCMAKE_TOOLCHAIN_FILE:FILEPATH=../vcpkg/scripts/buildsystems/vcpkg.cmake ..
+          cmake --build . --target tdjson --config Release
+          dir Release\tdjson.dll
+
+      - name: Upload tdjson.dll
+        uses: actions/upload-artifact@v4
+        with:
+          name: tdjson-windows-x64-patched
+          path: td/build/Release/tdjson.dll
